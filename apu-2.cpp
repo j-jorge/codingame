@@ -38,9 +38,17 @@ struct node
     return card == neighborhood_cardinality;
   }
 
-  bool single_edge() const
+  bool single_edge( const std::vector< node >& nodes ) const
   {
-    return ( card == 1 ) && ( neighbor_count == 1 );
+    if ( card != 1 )
+      return false;
+
+    std::size_t non_unary_neighbors( 0 );
+    for ( std::size_t i( 0 ); i != neighbor_count; ++i )
+      if ( nodes[ neighbors[ i ] ].card != 1 )
+        ++non_unary_neighbors;
+    
+    return non_unary_neighbors == 1;
   }
   
   void add_neighbor( std::size_t index, const node& n )
@@ -104,7 +112,7 @@ struct node
 
 bool full( const std::vector< node >& nodes, const node& n )
 {
-  if ( n.single_edge() )
+  if ( n.single_edge( nodes ) )
     return true;
   
   if ( n.two_guaranteed( nodes ) )
@@ -123,9 +131,9 @@ bool full( const std::vector< node >& nodes, const node& n )
 bool compare( const std::vector< node >& nodes, const node& a, const node& b )
 {
   return std::make_tuple
-    ( !full( nodes, a ), !a.one_guaranteed, a.x, a.y )
+    ( !full( nodes, a ), !a.one_guaranteed, -int( a.card ), a.x, a.y )
     < std::make_tuple
-      ( !full( nodes, b ), !b.one_guaranteed, b.x, b.y );
+      ( !full( nodes, b ), !b.one_guaranteed, -int( b.card ), b.x, b.y );
 }
 
 struct edge
@@ -314,16 +322,26 @@ std::vector< std::size_t > initialize_queue( std::size_t n )
 
 void edges_for_single
 ( std::map< edge, std::size_t >& result, std::vector< node >& nodes,
-  std::size_t i)
+  std::size_t i )
 {
   node& n( nodes[ i ] );
-  assert( n.single_edge() );
+  assert( n.single_edge( nodes ) );
   
   n.card = 0;
 
-  const std::size_t neighbor( n.neighbors[ 0 ] );
-  ++result[ edge( i, neighbor ) ];
-  --nodes[ neighbor ].card;
+  for ( std::size_t j( 0 ); j != n.neighbor_count; ++j )
+    {
+      const std::size_t neighbor( n.neighbors[ j ] );
+
+      if ( nodes[ neighbor ].card != 1 )
+        {
+          result[ edge( i, neighbor ) ] = 1;
+          --nodes[ neighbor ].card;
+          return;
+        }
+    }
+
+  assert( false );
 }
 
 void edges_for_full
@@ -396,30 +414,36 @@ void edges_random
   std::size_t i )
 {
   node& n( nodes[ i ] );
-
+  std::size_t neighbor_index( n.neighbor_count );
+  std::size_t neighbor_card( 0 );
+  
   for ( std::size_t j( 0 ); j != n.neighbor_count; ++j )
     {
       if ( n.remaining_links[ j ] == 0 )
         continue;
 
       const std::size_t neighbor( n.neighbors[ j ] );
-      ++result[ edge( i, neighbor ) ];
-            
-      assert( nodes[ neighbor ].card >= 1 );
-      --nodes[ neighbor ].card;
 
-      for ( std::size_t k( 0 ); k != nodes[ neighbor ].neighbor_count; ++k )
-        if ( nodes[ neighbor ].neighbors[ k ] == i )
-          {
-            --nodes[ neighbor ].remaining_links[ k ];
-            break;
-          }
-      
-      assert( n.card >= 1 );
-      --n.card;
-      --n.remaining_links[ j ];
-      break;
+      if ( nodes[ neighbor ].card > neighbor_card )
+        neighbor_index = j;
     }
+
+  assert( neighbor_index != n.neighbor_count );
+
+  const std::size_t neighbor( n.neighbors[ neighbor_index ] );
+  ++result[ edge( i, neighbor ) ];
+  --nodes[ neighbor ].card;
+
+  for ( std::size_t j( 0 ); j != nodes[ neighbor ].neighbor_count; ++j )
+    if ( nodes[ neighbor ].neighbors[ j ] == i )
+      {
+        --nodes[ neighbor ].remaining_links[ j ];
+        break;
+      }
+      
+  assert( n.card >= 1 );
+  --n.card;
+  --n.remaining_links[ neighbor_index ];
 }
 
 void clean_queue
@@ -495,7 +519,7 @@ int main()
             << n.one_guaranteed << ' ' << (int)n.x << ' '
             << (int)n.y << '\n' );
 
-      if ( n.single_edge() )
+      if ( n.single_edge( nodes ) )
         edges_for_single( result, nodes, i );
       else if ( full( nodes, n ) )
         edges_for_full( result, nodes, i );
@@ -503,13 +527,15 @@ int main()
         edges_for_one_guaranteed( result, nodes, i );
       else
         edges_random( result, nodes, i );
-
+      
       IF_DEBUG( print_cardinality( nodes, rows ) );
       
       clean_queue( nodes, queue );
       sort_queue( nodes, queue );
     }
 
+  LOGS( result.size() << " potential edges\n" );
+  
   for ( const auto& e : result )
     if( e.second != 0 )
       {
