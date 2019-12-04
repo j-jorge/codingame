@@ -1,0 +1,4 @@
+3
+ADD $1 $2
+VALUE 2 _
+MULT $1 3
